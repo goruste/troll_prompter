@@ -18,58 +18,28 @@ jobs:
         channel: 'stable'
         architecture: 'x64'
 
-    # 核心修复：不依赖网页上的 pubspec.yaml，直接用命令行强行安装语音识别包
-    - name: Force Install Dependencies
+    # 自动修复并获取依赖
+    - name: Install dependencies
       run: |
-        flutter pub add speech_to_text
+        flutter pub add speech_to_text || true
         flutter pub get
 
-    # 第一步：脱离 Xcode，直接把 Dart 代码编译成 iOS 真机（arm64）的 AOT 机器码
-    - name: Compile Dart to App AOT
+    # 关键修复：使用标准的 flutter build，并在命令前注入环境变量，强行彻底瘫痪 Xcode 的签名和 TeamID 校验
+    - name: Build iOS Application (Unsigned)
       run: |
-        flutter build bundle
-        mkdir -p build/aot
-        $FLUTTER_ROOT/bin/cache/artifacts/engine/ios-release/extension_safe/gen_snapshot_arm64 \
-          --deterministic \
-          --snapshot_kind=app-aot-elf \
-          --elf=build/aot/App \
-          --strip \
-          .dart_tool/flutter_build/*/app.dill || \
-        $FLUTTER_ROOT/bin/cache/artifacts/engine/ios-release/gen_snapshot_arm64 \
-          --deterministic \
-          --snapshot_kind=app-aot-elf \
-          --elf=build/aot/App \
-          --strip \
-          .dart_tool/flutter_build/*/app.dill
+        export CODE_SIGNING_ALLOWED=NO
+        export CODE_SIGNING_REQUIRED=NO
+        export CODE_SIGN_IDENTITY=""
+        flutter build ios --no-codesign --release
 
-    # 第二步：手动组装巨魔所需的 Payload 结构
-    - name: Assemble TrollStore Bundle
+    # 打包成巨魔专用 IPA
+    - name: Convert to TrollStore IPA
       run: |
-        mkdir -p Payload/Runner.app/Frameworks/Flutter.framework
-        
-        # 1. 放入编译好的 App 核心二进制
-        cp build/aot/App Payload/Runner.app/App
-        
-        # 2. 从 Flutter 缓存里把标准的真机 Release 版引擎结构拿过来
-        cp -r $FLUTTER_ROOT/bin/cache/artifacts/engine/ios-release/Flutter.xcframework/ios-arm64/Flutter.framework/* Payload/Runner.app/Frameworks/Flutter.framework/
-        
-        # 3. 把图片、字体等资源文件挪进去
-        cp -r build/flutter_assets Payload/Runner.app/flutter_assets
-        
-        # 4. 补齐权限配置文件（如果没有就创建一个临时的，防止报错卡住）
-        if [ -f ios/Runner/Info.plist ]; then
-          cp ios/Runner/Info.plist Payload/Runner.app/Info.plist
-        else
-          echo '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleDisplayName</key><string>巨魔AI提词器</string><key>CFBundleIdentifier</key><string>com.example.trollPrompter</string><key>NSMicrophoneUsageDescription</key><string>麦克风权限</string><key>NSSpeechRecognitionUsageDescription</key><string>语音识别</string></dict></plist>' > Payload/Runner.app/Info.plist
-        fi
-        
-        # 5. 补齐主入口二进制
-        cp Payload/Runner.app/App Payload/Runner.app/Runner
-
-        # 强行打包成 IPA
+        mkdir Payload
+        cp -r build/ios/iphoneos/Runner.app Payload/
         zip -r TrollPrompter.ipa Payload
-
-    # 第三步：上传产物
+        
+    # 上传产物
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
