@@ -21,14 +21,17 @@ jobs:
     - name: Install dependencies
       run: flutter pub get
 
-    # 终极修复：直接通过 --xcconfig-overrides 将底层强制免签参数直接灌入 Flutter 打包流
-    - name: Build iOS Application (Unsigned)
+    # 关键修复：先初始化环境，然后强行把免签参数写进 Flutter 官方的 Generated.xcconfig
+    - name: Inject Non-Codesign Config
       run: |
-        echo 'CODE_SIGNING_ALLOWED=NO' >> flutter_build_config.xcconfig
-        echo 'CODE_SIGNING_REQUIRED=NO' >> flutter_build_config.xcconfig
-        echo 'CODE_SIGN_IDENTITY=' >> flutter_build_config.xcconfig
-        
-        flutter build ios --no-codesign --release --xcconfig-overrides=flutter_build_config.xcconfig
+        flutter build ios --config-only --release
+        echo 'CODE_SIGNING_ALLOWED=NO' >> ios/Flutter/Generated.xcconfig
+        echo 'CODE_SIGNING_REQUIRED=NO' >> ios/Flutter/Generated.xcconfig
+        echo 'CODE_SIGN_IDENTITY=' >> ios/Flutter/Generated.xcconfig
+
+    # 使用最标准的编译命令，无参数冲突
+    - name: Build iOS Application (Unsigned)
+      run: flutter build ios --no-codesign --release
 
     # 打包成巨魔专用 IPA
     - name: Convert to TrollStore IPA
