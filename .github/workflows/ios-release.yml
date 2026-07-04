@@ -21,18 +21,14 @@ jobs:
     - name: Install dependencies
       run: flutter pub get
 
-    # 核心修复：修改 Xcode 默认配置模板，强行允许免签编译
-    - name: Patch Xcode for Non-Codesign
-      run: |
-        sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ios/Runner.xcodeproj/project.pbxproj || true
-        sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ios/Runner.xcodeproj/project.pbxproj || true
-
-    # 关键步骤：使用标准的 flutter build，并注入底层免签参数
+    # 终极修复：直接通过 --xcconfig-overrides 将底层强制免签参数直接灌入 Flutter 打包流
     - name: Build iOS Application (Unsigned)
       run: |
-        flutter build ios --no-codesign --release \
-          --extra-front-end-options=--no-implicit-dynamic \
-          --build-name=1.0.0 --build-number=1
+        echo 'CODE_SIGNING_ALLOWED=NO' >> flutter_build_config.xcconfig
+        echo 'CODE_SIGNING_REQUIRED=NO' >> flutter_build_config.xcconfig
+        echo 'CODE_SIGN_IDENTITY=' >> flutter_build_config.xcconfig
+        
+        flutter build ios --no-codesign --release --xcconfig-overrides=flutter_build_config.xcconfig
 
     # 打包成巨魔专用 IPA
     - name: Convert to TrollStore IPA
