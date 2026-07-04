@@ -21,24 +21,46 @@ jobs:
     - name: Install dependencies
       run: flutter pub get
 
-    # 第一步：只生成 Flutter 自身的 AOT 核心产物，不碰 Xcode
-    - name: Build Flutter AOT Runtime
+    # 第一步：脱离 Xcode，直接把 Dart 代码编译成 iOS 真机（arm64）的 AOT 机器码
+    - name: Compile Dart to App AOT
       run: |
-        flutter build ios --simulator --release
-        
-    # 第二步：强行在云端组装免签的苹果应用目录（Payload 结构）
+        flutter build bundle
+        mkdir -p build/aot
+        # 使用 Flutter 自带的内部编译器直接生成真机二进制核心
+        $FLUTTER_ROOT/bin/cache/artifacts/engine/ios-release/extension_safe/gen_snapshot_arm64 \
+          --deterministic \
+          --snapshot_kind=app-aot-elf \
+          --elf=build/aot/App \
+          --strip \
+          .dart_tool/flutter_build/*/app.dill || \
+        $FLUTTER_ROOT/bin/cache/artifacts/engine/ios-release/gen_snapshot_arm64 \
+          --deterministic \
+          --snapshot_kind=app-aot-elf \
+          --elf=build/aot/App \
+          --strip \
+          .dart_tool/flutter_build/*/app.dill
+
+    # 第二步：手动像拼积木一样组装巨魔所需的 Payload 结构
     - name: Assemble TrollStore Bundle
       run: |
-        mkdir -p Payload/Runner.app
+        mkdir -p Payload/Runner.app/Frameworks/Flutter.framework
         
-        # 复制已经编译好的 Flutter 核心框架与资源到我们的空壳中
-        cp -r build/ios/iphonesimulator/Runner.app/* Payload/Runner.app/
+        # 1. 放入我们在第一步硬核编译出来的 App 核心二进制
+        cp build/aot/App Payload/Runner.app/App
         
-        # 移出模拟器专用的非真机架构，替换为真机所需的瘦身配置
-        rm -rf Payload/Runner.app/Frameworks/Flutter.framework/Flutter
-        cp -r ${{ env.FLUTTER_ROOT }}/bin/cache/artifacts/engine/ios-release/Flutter.xcframework/ios-arm64/Flutter.framework/Flutter Payload/Runner.app/Frameworks/Flutter.framework/
+        # 2. 从 Flutter 缓存里把标准的真机 Release 版引擎结构拿过来
+        cp -r $FLUTTER_ROOT/bin/cache/artifacts/engine/ios-release/Flutter.xcframework/ios-arm64/Flutter.framework/* Payload/Runner.app/Frameworks/Flutter.framework/
         
-        # 强行打包
+        # 3. 把图片、字体等资源文件挪进去
+        cp -r build/flutter_assets Payload/Runner.app/flutter_assets
+        
+        # 4. 把你在网页上写好的核心权限配置文件放进去
+        cp ios/Runner/Info.plist Payload/Runner.app/Info.plist
+        
+        # 5. 补齐一个空壳入口（巨魔启动时必须有这个主入口二进制）
+        cp Payload/Runner.app/App Payload/Runner.app/Runner
+
+        # 强行打包成 IPA
         zip -r TrollPrompter.ipa Payload
 
     # 第三步：上传产物
