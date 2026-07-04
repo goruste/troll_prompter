@@ -18,15 +18,17 @@ jobs:
         channel: 'stable'
         architecture: 'x64'
 
-    - name: Install dependencies
-      run: flutter pub get
+    # 核心修复：不依赖网页上的 pubspec.yaml，直接用命令行强行安装语音识别包
+    - name: Force Install Dependencies
+      run: |
+        flutter pub add speech_to_text
+        flutter pub get
 
     # 第一步：脱离 Xcode，直接把 Dart 代码编译成 iOS 真机（arm64）的 AOT 机器码
     - name: Compile Dart to App AOT
       run: |
         flutter build bundle
         mkdir -p build/aot
-        # 使用 Flutter 自带的内部编译器直接生成真机二进制核心
         $FLUTTER_ROOT/bin/cache/artifacts/engine/ios-release/extension_safe/gen_snapshot_arm64 \
           --deterministic \
           --snapshot_kind=app-aot-elf \
@@ -40,12 +42,12 @@ jobs:
           --strip \
           .dart_tool/flutter_build/*/app.dill
 
-    # 第二步：手动像拼积木一样组装巨魔所需的 Payload 结构
+    # 第二步：手动组装巨魔所需的 Payload 结构
     - name: Assemble TrollStore Bundle
       run: |
         mkdir -p Payload/Runner.app/Frameworks/Flutter.framework
         
-        # 1. 放入我们在第一步硬核编译出来的 App 核心二进制
+        # 1. 放入编译好的 App 核心二进制
         cp build/aot/App Payload/Runner.app/App
         
         # 2. 从 Flutter 缓存里把标准的真机 Release 版引擎结构拿过来
@@ -54,10 +56,14 @@ jobs:
         # 3. 把图片、字体等资源文件挪进去
         cp -r build/flutter_assets Payload/Runner.app/flutter_assets
         
-        # 4. 把你在网页上写好的核心权限配置文件放进去
-        cp ios/Runner/Info.plist Payload/Runner.app/Info.plist
+        # 4. 补齐权限配置文件（如果没有就创建一个临时的，防止报错卡住）
+        if [ -f ios/Runner/Info.plist ]; then
+          cp ios/Runner/Info.plist Payload/Runner.app/Info.plist
+        else
+          echo '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleDisplayName</key><string>巨魔AI提词器</string><key>CFBundleIdentifier</key><string>com.example.trollPrompter</string><key>NSMicrophoneUsageDescription</key><string>麦克风权限</string><key>NSSpeechRecognitionUsageDescription</key><string>语音识别</string></dict></plist>' > Payload/Runner.app/Info.plist
+        fi
         
-        # 5. 补齐一个空壳入口（巨魔启动时必须有这个主入口二进制）
+        # 5. 补齐主入口二进制
         cp Payload/Runner.app/App Payload/Runner.app/Runner
 
         # 强行打包成 IPA
