@@ -21,15 +21,15 @@ jobs:
     - name: Install dependencies
       run: flutter pub get
 
-    # 关键修复：先初始化环境，然后强行把免签参数写进 Flutter 官方的 Generated.xcconfig
-    - name: Inject Non-Codesign Config
+    # 关键修复：直接暴力修改工程文件，强制关闭整套 iOS 项目的签名要求，并移除 TeamID 校验
+    - name: Force Disable Xcode Code Signing
       run: |
-        flutter build ios --config-only --release
-        echo 'CODE_SIGNING_ALLOWED=NO' >> ios/Flutter/Generated.xcconfig
-        echo 'CODE_SIGNING_REQUIRED=NO' >> ios/Flutter/Generated.xcconfig
-        echo 'CODE_SIGN_IDENTITY=' >> ios/Flutter/Generated.xcconfig
-
-    # 使用最标准的编译命令，无参数冲突
+        sed -i '' 's/DEVELOPMENT_TEAM = .*/DEVELOPMENT_TEAM = "";/g' ios/Runner.xcodeproj/project.pbxproj
+        sed -i '' 's/CODE_SIGN_IDENTITY = .*/CODE_SIGN_IDENTITY = "";/g' ios/Runner.xcodeproj/project.pbxproj
+        sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ios/Runner.xcodeproj/project.pbxproj
+        sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ios/Runner.xcodeproj/project.pbxproj
+        
+    # 直接运行标准的编译命令
     - name: Build iOS Application (Unsigned)
       run: flutter build ios --no-codesign --release
 
