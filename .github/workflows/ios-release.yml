@@ -21,26 +21,27 @@ jobs:
     - name: Install dependencies
       run: flutter pub get
 
-    # 关键修复：直接暴力修改工程文件，强制关闭整套 iOS 项目的签名要求，并移除 TeamID 校验
-    - name: Force Disable Xcode Code Signing
+    # 第一步：只生成 Flutter 自身的 AOT 核心产物，不碰 Xcode
+    - name: Build Flutter AOT Runtime
       run: |
-        sed -i '' 's/DEVELOPMENT_TEAM = .*/DEVELOPMENT_TEAM = "";/g' ios/Runner.xcodeproj/project.pbxproj
-        sed -i '' 's/CODE_SIGN_IDENTITY = .*/CODE_SIGN_IDENTITY = "";/g' ios/Runner.xcodeproj/project.pbxproj
-        sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ios/Runner.xcodeproj/project.pbxproj
-        sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ios/Runner.xcodeproj/project.pbxproj
+        flutter build ios --simulator --release
         
-    # 直接运行标准的编译命令
-    - name: Build iOS Application (Unsigned)
-      run: flutter build ios --no-codesign --release
-
-    # 打包成巨魔专用 IPA
-    - name: Convert to TrollStore IPA
+    # 第二步：强行在云端组装免签的苹果应用目录（Payload 结构）
+    - name: Assemble TrollStore Bundle
       run: |
-        mkdir Payload
-        cp -r build/ios/iphoneos/Runner.app Payload/
+        mkdir -p Payload/Runner.app
+        
+        # 复制已经编译好的 Flutter 核心框架与资源到我们的空壳中
+        cp -r build/ios/iphonesimulator/Runner.app/* Payload/Runner.app/
+        
+        # 移出模拟器专用的非真机架构，替换为真机所需的瘦身配置
+        rm -rf Payload/Runner.app/Frameworks/Flutter.framework/Flutter
+        cp -r ${{ env.FLUTTER_ROOT }}/bin/cache/artifacts/engine/ios-release/Flutter.xcframework/ios-arm64/Flutter.framework/Flutter Payload/Runner.app/Frameworks/Flutter.framework/
+        
+        # 强行打包
         zip -r TrollPrompter.ipa Payload
-        
-    # 上传产物
+
+    # 第三步：上传产物
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
