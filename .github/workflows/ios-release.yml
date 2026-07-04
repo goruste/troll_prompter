@@ -1,0 +1,40 @@
+name: Build TrollStore IPA
+
+on:
+  push:
+    branches: [ "main" ] # 只要你往 main 分支推代码，就会自动触发打包
+
+jobs:
+  build:
+    runs-on: macos-latest # 使用 GitHub 免费提供的 Mac 服务器
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        channel: 'stable'
+        architecture: 'x64'
+
+    - name: Install dependencies
+      run: flutter pub get
+
+    # 关键步骤：执行免证书签名编译，绕过苹果开发者账号限制
+    - name: Build iOS Application (Unsigned)
+      run: flutter build ios --no-codesign --release
+
+    # 关键步骤：把编译出来的构建产物转换成巨魔能直接安装的 .ipa 格式
+    - name: Convert to TrollStore IPA
+      run: |
+        mkdir Payload
+        cp -r build/ios/iphoneos/Runner.app Payload/
+        zip -r TrollPrompter.ipa Payload
+        
+    # 将打包好的 IPA 文件上传到 GitHub Actions 的下载页面
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: TrollStore-Prompter-IPA
+        path: TrollPrompter.ipa
